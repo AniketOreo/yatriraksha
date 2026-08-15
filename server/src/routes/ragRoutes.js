@@ -1,33 +1,51 @@
 import express from 'express';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import dotenv from 'dotenv';
+dotenv.config();
 
 const router = express.Router();
 
-// Mock / Sample RAG Query Handler for demonstration
-// Connects to Gemini API and searches technical datasets
+const genAI = process.env.GEMINI_API_KEY ? new GoogleGenerativeAI(process.env.GEMINI_API_KEY) : null;
+
+// RAG Query Handler
+// Connects to Gemini API for intelligent responses
 router.post('/query', async (req, res) => {
   try {
     const { query, language } = req.body;
     if (!query) return res.status(400).json({ message: 'Query is required' });
 
-    // Simulated RAG Context Retrieval & AI Response Generation
-    const mockContext = [
-      "Tata Signa Overheating Protocol (Page 42): Coolant temperature warning light indicates coolant overheating or low fluid. Step 1: Immediately pull vehicle to safe highway shoulder. Step 2: Allow engine to idle for 2 minutes before shutdown. Do NOT open pressure cap while hot.",
-      "Motor Vehicles Act 2019 Section 194B: Overweight penalty structure across state borders requires valid e-Way bill extension if transit delay exceeds 24 hours due to breakdown."
-    ];
+    let finalAnswer = "";
 
-    const isCoolantQuery = query.toLowerCase().includes('coolant') || query.toLowerCase().includes('coolant') || query.toLowerCase().includes('तापमान') || query.toLowerCase().includes('engine');
+    if (genAI) {
+      try {
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        const prompt = `You are an expert highway mechanical assistant and emergency response coordinator named 'YatriRaksha AI'. 
+A driver on a national highway is asking you for help or asking a question. 
+Please provide a brief, actionable, and safe response. 
+If they ask ridiculous, unsafe, or non-driving related questions, kindly remind them you are an emergency driving/mechanical assistant and bring the topic back to road safety or vehicle health.
+Use markdown for formatting.
 
-    const mockAnswer = isCoolantQuery
-      ? "🚨 **Tata Signa Engine Overheating Protocol:**\n\n1. **Stop Safely:** Immediately pull over onto the highway shoulder and turn on hazard lights.\n2. **Idle Engine:** Allow the engine to idle for 2 minutes before turning off the ignition.\n3. **Do NOT open the radiator cap:** High pressure steam can cause severe burns.\n4. **Check Radiator Leaks:** Visually inspect underneath for fluid leaks after 10 minutes.\n5. **Support Dispatched:** Nearby verified mechanics on NH-44 have been highlighted on your console."
-      : `Based on official Motor Vehicles Act guidelines and repair manuals:\n\nFor issue "${query}", please ensure your vehicle remains on the highway shoulder. Verified documentation requires valid E-Way bills during breakdown transit delays.`;
+Driver query: "${query}"`;
+        
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        finalAnswer = response.text();
+      } catch (geminiErr) {
+        console.error("Gemini API Error:", geminiErr);
+        finalAnswer = "⚠️ **AI Diagnostic Error:** Failed to communicate with the intelligent backend. Please pull over safely and contact support if this is an emergency.";
+      }
+    } else {
+      // Intelligent Fallback
+      finalAnswer = "🚨 **AI System Offline (Missing API Key)**\n\nYour query was received, but the Gemini AI brain is offline. \n\n*Developer Note:* Please add `GEMINI_API_KEY` to the `server/.env` file to enable dynamic responses.";
+    }
 
     res.json({
       query,
-      answer: mockAnswer,
-      contextUsed: mockContext,
+      answer: finalAnswer,
       timestamp: new Date()
     });
   } catch (err) {
+    console.error("Route Error:", err);
     res.status(500).json({ message: err.message });
   }
 });

@@ -13,6 +13,9 @@ export const setupSocketHandlers = (io) => {
       } else if (data.role === 'driver') {
         socket.join(`room:driver:${data.userId}`);
         console.log(`[Socket.IO] Driver joined room: ${data.userId}`);
+      } else if (data.role === 'mechanic') {
+        socket.join('room:mechanic:radar');
+        console.log(`[Socket.IO] Mechanic joined radar room: ${socket.id}`);
       }
     });
 
@@ -53,15 +56,18 @@ export const setupSocketHandlers = (io) => {
           status: 'Open'
         });
 
-        // Broadcast urgent alarm to Admin Control Room
-        io.to('room:admin:control_room').emit('admin:sosAlert', {
+        const alertPayload = {
           incidentId: incident._id,
           userId,
           vehicleNumber,
           emergencyType,
           location: { lat, lng },
           createdAt: incident.createdAt
-        });
+        };
+
+        // Broadcast urgent alarm to Admin Control Room and Mechanic Radar
+        io.to('room:admin:control_room').emit('admin:sosAlert', alertPayload);
+        io.to('room:mechanic:radar').emit('admin:sosAlert', alertPayload);
 
         console.log(`[SOS TRIGGERED] Incident created ID: ${incident._id}`);
       } catch (err) {
