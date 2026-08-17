@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import Login from './pages/Login';
+import LandingPage from './pages/LandingPage';
 import DriverDashboard from './pages/DriverDashboard';
 import AdminDashboard from './pages/AdminDashboard';
 import MechanicDashboard from './pages/MechanicDashboard';
@@ -18,7 +18,7 @@ export default function App() {
   };
 
   if (!user) {
-    return <Login onLoginSuccess={handleLoginSuccess} />;
+    return <LandingPage onLoginSuccess={handleLoginSuccess} />;
   }
 
   if (user.role === 'admin') {
