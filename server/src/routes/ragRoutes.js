@@ -11,28 +11,34 @@ const genAI = process.env.GEMINI_API_KEY ? new GoogleGenerativeAI(process.env.GE
 // Connects to Gemini API for intelligent responses
 router.post('/query', async (req, res) => {
   try {
-    const { query, language } = req.body;
+    const { query, history } = req.body;
     if (!query) return res.status(400).json({ message: 'Query is required' });
 
     let finalAnswer = "";
 
     if (genAI) {
       try {
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-        const prompt = `You are an expert highway mechanical assistant and emergency response coordinator named 'YatriRaksha AI'. 
+        const systemInstruction = `You are an expert highway mechanical assistant and emergency response coordinator named 'YatriRaksha AI'. 
 A driver on a national highway is asking you for help or asking a question. 
 Please provide a brief, actionable, and safe response. 
 If they ask ridiculous, unsafe, or non-driving related questions, kindly remind them you are an emergency driving/mechanical assistant and bring the topic back to road safety or vehicle health.
-Use markdown for formatting.
+Use markdown for formatting.`;
 
-Driver query: "${query}"`;
+        const model = genAI.getGenerativeModel({ 
+          model: "gemini-3.6-flash",
+          systemInstruction
+        });
         
-        const result = await model.generateContent(prompt);
+        const chat = model.startChat({
+          history: history || []
+        });
+        
+        const result = await chat.sendMessage(query);
         const response = await result.response;
         finalAnswer = response.text();
       } catch (geminiErr) {
         console.error("Gemini API Error:", geminiErr);
-        finalAnswer = "⚠️ **AI Diagnostic Error:** Failed to communicate with the intelligent backend. Please pull over safely and contact support if this is an emergency.";
+        finalAnswer = `⚠️ **AI Diagnostic Error:** ${geminiErr.message}`;
       }
     } else {
       // Intelligent Fallback

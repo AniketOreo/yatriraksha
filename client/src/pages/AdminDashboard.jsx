@@ -1,13 +1,63 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import io from 'socket.io-client';
 import { Truck, LogOut, Radio, AlertTriangle, Map, Activity, ShieldAlert, CheckCircle2, User } from 'lucide-react';
+import { GoogleMap, useLoadScript, Marker } from '@react-google-maps/api';
 import Navbar from '../components/Navbar';
+import { darkMapStyle } from '../components/MapStyles';
+
+const mapContainerStyle = {
+  width: '100%',
+  height: '100%'
+};
+
+// Center of India roughly
+const defaultCenter = {
+  lat: 20.5937,
+  lng: 78.9629
+};
 
 const socket = io('http://localhost:5000');
 
 export default function AdminDashboard({ user, onLogout }) {
   const [vehicles, setVehicles] = useState({});
   const [sosAlerts, setSosAlerts] = useState([]);
+  
+  const mapRef = useRef(null);
+
+  const { isLoaded } = useLoadScript({
+    googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY,
+  });
+
+  const onMapLoad = useCallback((map) => {
+    mapRef.current = map;
+  }, []);
+
+  // Optional auto-fit bounds when new data arrives
+  useEffect(() => {
+    if (mapRef.current && isLoaded) {
+      const bounds = new window.google.maps.LatLngBounds();
+      let hasPoints = false;
+
+      Object.values(vehicles).forEach(v => {
+        bounds.extend({ lat: v.lat, lng: v.lng });
+        hasPoints = true;
+      });
+
+      sosAlerts.forEach(a => {
+        bounds.extend({ lat: a.location.lat, lng: a.location.lng });
+        hasPoints = true;
+      });
+
+      if (hasPoints) {
+        // Don't zoom in too close if there's only 1 marker
+        mapRef.current.fitBounds(bounds);
+        const listener = window.google.maps.event.addListener(mapRef.current, 'idle', () => {
+          if (mapRef.current.getZoom() > 14) mapRef.current.setZoom(14);
+          window.google.maps.event.removeListener(listener);
+        });
+      }
+    }
+  }, [vehicles, sosAlerts, isLoaded]);
 
   useEffect(() => {
     // Join control room socket
@@ -116,19 +166,59 @@ export default function AdminDashboard({ user, onLogout }) {
             </div>
           </div>
 
-          <div className="flex-1 bg-slate-950/90 border border-slate-800/90 rounded-xl flex items-center justify-center min-h-[420px] relative overflow-hidden group">
-            {/* Background Map Grid Pattern */}
-            <div className="absolute inset-0 bg-[radial-gradient(#1e293b_1px,transparent_1px)] [background-size:16px_16px] opacity-40"></div>
+          <div className="flex-1 rounded-xl overflow-hidden min-h-[420px] relative border border-slate-800/90 shadow-inner">
+            {isLoaded ? (
+              <GoogleMap
+                mapContainerStyle={mapContainerStyle}
+                center={defaultCenter}
+                zoom={5}
+                options={{
+                  styles: darkMapStyle,
+                  disableDefaultUI: true,
+                  zoomControl: true,
+                }}
+                onLoad={onMapLoad}
+              >
+                {/* Regular Vehicles */}
+                {Object.values(vehicles).map((v, idx) => (
+                  <Marker
+                    key={`v-${idx}`}
+                    position={{ lat: v.lat, lng: v.lng }}
+                    icon={{
+                      path: window.google.maps.SymbolPath.CIRCLE,
+                      fillColor: '#38bdf8', // sky-400
+                      fillOpacity: 1,
+                      strokeWeight: 0,
+                      scale: 8,
+                    }}
+                    title={v.vehicleNo}
+                  />
+                ))}
 
-            <div className="text-center p-8 relative z-10 max-w-md">
-              <div className="w-16 h-16 rounded-2xl bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-sky-400 mx-auto mb-4 group-hover:scale-110 transition-transform duration-300 shadow-xl">
-                <Map className="w-8 h-8 text-sky-400" />
+                {/* SOS Alerts */}
+                {sosAlerts.map((alert, idx) => (
+                  <Marker
+                    key={`sos-${idx}`}
+                    position={{ lat: alert.location.lat, lng: alert.location.lng }}
+                    icon={{
+                      path: window.google.maps.SymbolPath.CIRCLE,
+                      fillColor: '#ef4444', // red-500
+                      fillOpacity: 1,
+                      strokeColor: '#7f1d1d', // red-900
+                      strokeWeight: 2,
+                      scale: 12,
+                    }}
+                    title={`SOS: ${alert.vehicleNumber}`}
+                    animation={window.google.maps.Animation.BOUNCE}
+                  />
+                ))}
+              </GoogleMap>
+            ) : (
+              <div className="w-full h-full flex flex-col items-center justify-center bg-slate-900 text-sky-400">
+                <Activity className="w-8 h-8 animate-pulse mb-3" />
+                <span className="font-mono text-sm">Initializing Secure Telemetry Canvas...</span>
               </div>
-              <h3 className="text-base font-bold text-slate-200">Google Maps Telemetry Canvas</h3>
-              <p className="text-xs text-slate-400 mt-2 leading-relaxed">
-                Real-time WebSocket truck position markers and emergency garage locations render dynamically on this canvas using <code className="text-sky-400 font-mono">@react-google-maps/api</code>.
-              </p>
-            </div>
+            )}
           </div>
         </div>
 

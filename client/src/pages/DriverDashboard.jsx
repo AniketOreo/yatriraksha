@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import io from 'socket.io-client';
 import { Truck, LogOut, Radio, AlertTriangle, Bot, Send, MapPin, Gauge, ShieldAlert, Sparkles } from 'lucide-react';
 import Navbar from '../components/Navbar';
+import ReactMarkdown from 'react-markdown';
 
 const socket = io('http://localhost:5000');
 
@@ -9,10 +10,18 @@ export default function DriverDashboard({ user, onLogout }) {
   const [isOnDuty, setIsOnDuty] = useState(false);
   const [vehicleNo, setVehicleNo] = useState('KA-01-EQ-9876');
   const [query, setQuery] = useState('');
-  const [ragAnswer, setRagAnswer] = useState('');
+  const [chatHistory, setChatHistory] = useState([
+    { role: 'model', parts: [{ text: "Hello! I am YatriRaksha AI. How can I assist you with your vehicle today?" }] }
+  ]);
   const [loadingRag, setLoadingRag] = useState(false);
   const [sosStatus, setSosStatus] = useState(null);
   const [coords, setCoords] = useState({ lat: 12.9716, lng: 77.5946 });
+  const chatEndRef = useRef(null);
+
+  // Auto-scroll chat to bottom
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [chatHistory, loadingRag]);
 
   useEffect(() => {
     socket.emit('join:room', { role: 'driver', userId: user?.id || 'demo_driver' });
@@ -52,19 +61,35 @@ export default function DriverDashboard({ user, onLogout }) {
   const handleAskRAG = async (e) => {
     e.preventDefault();
     if (!query.trim()) return;
+    
+    // Add user query to history immediately for fast UI feedback
+    const userMessage = { role: 'user', parts: [{ text: query }] };
+    const newHistory = [...chatHistory, userMessage];
+    setChatHistory(newHistory);
+    setQuery('');
     setLoadingRag(true);
-    setRagAnswer('');
 
     try {
+      // Gemini API requires history to start with a 'user' role.
+      // We slice(1) to remove our hardcoded initial 'model' greeting from the payload.
+      const apiHistory = chatHistory.length > 0 && chatHistory[0].role === 'model' 
+        ? chatHistory.slice(1) 
+        : chatHistory;
+
       const res = await fetch('http://localhost:5000/api/rag/query', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query, language: 'en' })
+        body: JSON.stringify({ 
+          query: userMessage.parts[0].text, 
+          history: apiHistory 
+        })
       });
       const data = await res.json();
-      setRagAnswer(data.answer);
+      
+      setChatHistory([...newHistory, { role: 'model', parts: [{ text: data.answer }] }]);
     } catch (err) {
-      setRagAnswer('🔧 AI Diagnostic Fallback:\n1. Pull over safely to the highway shoulder.\n2. Turn on hazard warning lights.\n3. Check engine coolant reservoir level after temperature drops.\n4. Call emergency breakdown hotline or tap SOS button.');
+      console.error("Frontend Fetch Error:", err);
+      setChatHistory([...newHistory, { role: 'model', parts: [{ text: `❌ Network Error: Could not connect to AI server. Details: ${err.message}` }] }]);
     } finally {
       setLoadingRag(false);
     }
@@ -150,8 +175,8 @@ export default function DriverDashboard({ user, onLogout }) {
         </div>
 
         {/* RAG AI ASSISTANT CARD */}
-        <div className="glass-panel p-4 rounded-2xl border border-slate-800 shadow-xl">
-          <div className="flex items-center justify-between mb-3">
+        <div className="glass-panel p-4 rounded-2xl border border-slate-800 shadow-xl flex flex-col h-[350px]">
+          <div className="flex items-center justify-between mb-3 shrink-0">
             <h2 className="text-xs font-bold text-sky-400 uppercase tracking-wider flex items-center gap-1.5">
               <Bot className="w-4 h-4 text-sky-400" />
               <span>Highway Repair & RTO AI Assistant</span>
@@ -159,29 +184,59 @@ export default function DriverDashboard({ user, onLogout }) {
             <Sparkles className="w-3.5 h-3.5 text-amber-400" />
           </div>
 
-          <form onSubmit={handleAskRAG} className="flex gap-2 mb-3">
+          <div className="flex-1 overflow-y-auto mb-3 space-y-3 pr-2 custom-scrollbar">
+            {chatHistory.map((msg, i) => (
+              <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                <div className={`p-3 rounded-xl max-w-[90%] text-xs leading-relaxed shadow-sm ${
+                  msg.role === 'user' 
+                    ? 'bg-sky-600/20 border border-sky-500/30 text-sky-100' 
+                    : 'bg-slate-900 border border-slate-700 text-slate-300'
+                }`}>
+                  {msg.role === 'user' ? (
+                    msg.parts[0].text
+                  ) : (
+                    <ReactMarkdown
+                      components={{
+                        p: ({node, ...props}) => <p className="mb-2 last:mb-0" {...props} />,
+                        strong: ({node, ...props}) => <strong className="font-bold text-sky-100" {...props} />,
+                        ul: ({node, ...props}) => <ul className="list-disc pl-4 mb-2 space-y-1" {...props} />,
+                        ol: ({node, ...props}) => <ol className="list-decimal pl-4 mb-2 space-y-1" {...props} />,
+                        h3: ({node, ...props}) => <h3 className="font-bold text-sm mt-3 mb-1 text-sky-300" {...props} />,
+                      }}
+                    >
+                      {msg.parts[0].text}
+                    </ReactMarkdown>
+                  )}
+                </div>
+              </div>
+            ))}
+            {loadingRag && (
+              <div className="flex justify-start">
+                <div className="bg-slate-900 border border-slate-700 text-slate-400 p-3 rounded-xl text-xs flex items-center gap-2">
+                  <Bot className="w-3 h-3 animate-pulse" /> Thinking...
+                </div>
+              </div>
+            )}
+            <div ref={chatEndRef} />
+          </div>
+
+          <form onSubmit={handleAskRAG} className="flex gap-2 shrink-0 mt-auto">
             <input
               type="text"
-              placeholder="e.g. Coolant light glowing, what to do?"
+              placeholder="e.g. Engine smoking, what to do?"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-sky-500 hover:border-slate-700 transition-all"
             />
             <button
               type="submit"
-              disabled={loadingRag}
+              disabled={loadingRag || !query.trim()}
               className="bg-sky-600 hover:bg-sky-500 text-white px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 hover:shadow-[0_0_15px_rgba(56,189,248,0.4)] transition-all cursor-pointer disabled:opacity-50"
             >
-              <span>{loadingRag ? 'Asking...' : 'Ask'}</span>
+              <span>{loadingRag ? '...' : 'Ask'}</span>
               <Send className="w-3.5 h-3.5" />
             </button>
           </form>
-
-          {ragAnswer && (
-            <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 text-xs text-slate-300 whitespace-pre-line leading-relaxed shadow-inner">
-              {ragAnswer}
-            </div>
-          )}
         </div>
 
         </div>

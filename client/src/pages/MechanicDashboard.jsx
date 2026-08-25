@@ -1,7 +1,20 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import io from 'socket.io-client';
 import { Wrench, ShieldAlert, CheckCircle2, Navigation, Activity, MapPin } from 'lucide-react';
+import { GoogleMap, useLoadScript, Marker } from '@react-google-maps/api';
 import Navbar from '../components/Navbar';
+import { darkMapStyle } from '../components/MapStyles';
+
+const mapContainerStyle = {
+  width: '100%',
+  height: '100%'
+};
+
+// Default Mechanic Location (e.g., somewhere in India)
+const mechanicLocation = {
+  lat: 28.7041,
+  lng: 77.1025
+};
 
 const socket = io('http://localhost:5000');
 
@@ -9,6 +22,39 @@ export default function MechanicDashboard({ user, onLogout }) {
   const [isAvailable, setIsAvailable] = useState(false);
   const [sosAlerts, setSosAlerts] = useState([]);
   const [activeJob, setActiveJob] = useState(null);
+
+  const mapRef = useRef(null);
+
+  const { isLoaded } = useLoadScript({
+    googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY,
+  });
+
+  const onMapLoad = useCallback((map) => {
+    mapRef.current = map;
+  }, []);
+
+  // Auto-fit bounds when new SOS arrives
+  useEffect(() => {
+    if (mapRef.current && isLoaded && isAvailable) {
+      const bounds = new window.google.maps.LatLngBounds();
+      bounds.extend(mechanicLocation); // Always include mechanic
+
+      sosAlerts.forEach(a => {
+        bounds.extend({ lat: a.location.lat, lng: a.location.lng });
+      });
+
+      if (sosAlerts.length > 0) {
+        mapRef.current.fitBounds(bounds);
+        const listener = window.google.maps.event.addListener(mapRef.current, 'idle', () => {
+          if (mapRef.current.getZoom() > 14) mapRef.current.setZoom(14);
+          window.google.maps.event.removeListener(listener);
+        });
+      } else {
+        mapRef.current.setCenter(mechanicLocation);
+        mapRef.current.setZoom(13);
+      }
+    }
+  }, [sosAlerts, isAvailable, isLoaded]);
 
   useEffect(() => {
     socket.emit('join:room', { role: 'mechanic', userId: user?.id || 'demo_mechanic' });
@@ -77,18 +123,71 @@ export default function MechanicDashboard({ user, onLogout }) {
             </h2>
 
             {!isAvailable ? (
-              <div className="flex-1 flex flex-col items-center justify-center text-slate-500 border-2 border-dashed border-slate-800 rounded-xl bg-slate-900/30">
+              <div className="flex-1 flex flex-col items-center justify-center text-slate-500 border-2 border-dashed border-slate-800 rounded-xl bg-slate-900/30 min-h-[250px]">
                 <Wrench className="w-8 h-8 mb-2 opacity-50" />
                 <p className="text-xs">Go "Available" to receive emergency dispatches.</p>
               </div>
-            ) : sosAlerts.length === 0 ? (
-              <div className="flex-1 flex flex-col items-center justify-center text-slate-400 border border-slate-800 rounded-xl bg-slate-900/50 relative overflow-hidden">
-                <div className="absolute inset-0 border-4 border-sky-500/10 rounded-full animate-ping [animation-duration:3s] scale-150"></div>
-                <div className="w-4 h-4 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_20px_rgba(16,185,129,0.5)] z-10 mb-2"></div>
-                <p className="text-xs font-medium z-10">Scanning for nearby breakdowns...</p>
-              </div>
             ) : (
-              <div className="space-y-3 overflow-y-auto pr-1">
+              <div className="flex flex-col gap-4 flex-1">
+                {/* Live Radar Map */}
+                <div className="h-[250px] rounded-xl overflow-hidden border border-slate-800/90 shadow-inner relative">
+                  {isLoaded ? (
+                    <GoogleMap
+                      mapContainerStyle={mapContainerStyle}
+                      center={mechanicLocation}
+                      zoom={13}
+                      options={{
+                        styles: darkMapStyle,
+                        disableDefaultUI: true,
+                      }}
+                      onLoad={onMapLoad}
+                    >
+                      {/* Mechanic Marker */}
+                      <Marker
+                        position={mechanicLocation}
+                        icon={{
+                          path: window.google.maps.SymbolPath.CIRCLE,
+                          fillColor: '#10b981', // emerald-500
+                          fillOpacity: 1,
+                          strokeColor: '#064e3b',
+                          strokeWeight: 2,
+                          scale: 8,
+                        }}
+                        title="Your Location"
+                      />
+
+                      {/* SOS Alerts */}
+                      {sosAlerts.map((alert, idx) => (
+                        <Marker
+                          key={`sos-${idx}`}
+                          position={{ lat: alert.location.lat, lng: alert.location.lng }}
+                          icon={{
+                            path: window.google.maps.SymbolPath.CIRCLE,
+                            fillColor: '#ef4444', // red-500
+                            fillOpacity: 1,
+                            strokeWeight: 0,
+                            scale: 10,
+                          }}
+                          animation={window.google.maps.Animation.BOUNCE}
+                        />
+                      ))}
+                    </GoogleMap>
+                  ) : (
+                    <div className="w-full h-full flex flex-col items-center justify-center bg-slate-900 text-sky-400">
+                      <Activity className="w-6 h-6 animate-pulse mb-2" />
+                      <span className="font-mono text-xs">Loading Radar...</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* SOS List */}
+                {sosAlerts.length === 0 ? (
+                  <div className="flex-1 flex flex-col items-center justify-center text-slate-400 border border-slate-800 rounded-xl bg-slate-900/50 relative overflow-hidden min-h-[100px]">
+                    <div className="absolute inset-0 border-4 border-sky-500/10 rounded-full animate-ping [animation-duration:3s] scale-150"></div>
+                    <p className="text-xs font-medium z-10 text-emerald-400">Radar Active. No nearby breakdowns.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3 overflow-y-auto pr-1 max-h-[300px]">
                 {sosAlerts.map((alert, idx) => (
                   <div key={idx} className="bg-red-950/30 border border-red-900/50 p-4 rounded-xl shadow-lg relative overflow-hidden group">
                     <div className="absolute inset-0 bg-gradient-to-r from-red-500/5 to-transparent"></div>
@@ -125,6 +224,8 @@ export default function MechanicDashboard({ user, onLogout }) {
               </div>
             )}
           </div>
+          )}
+        </div>
 
           {/* Right Column: Active Job Card */}
           <div className="glass-panel border border-slate-800/80 rounded-2xl p-5 shadow-xl flex flex-col">

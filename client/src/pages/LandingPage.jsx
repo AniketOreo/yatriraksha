@@ -69,7 +69,7 @@ export default function LandingPage({ onLoginSuccess }) {
     }
   };
 
-  const LoginModal = () => (
+  const renderLoginModal = () => (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md transition-opacity">
       <div className="w-full max-w-md relative z-10 animate-float shadow-2xl">
         <button 
@@ -650,7 +650,7 @@ export default function LandingPage({ onLoginSuccess }) {
       </footer>
 
       {/* Login/Signup Modal (conditionally rendered) */}
-      {showModal && <LoginModal />}
+      {showModal && renderLoginModal()}
     </div>
   );
 }
